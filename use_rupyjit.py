@@ -10,4 +10,4 @@ print(rupyjit.version())
 rupyjit.enable()
 
 # test()
-add(1, 2)
+add(4242, 1234)

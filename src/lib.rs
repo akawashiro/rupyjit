@@ -1,8 +1,8 @@
 use log::info;
 use pyo3::ffi::{
     PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
-    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyObject, PyThreadState, PyTuple_Check,
-    PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
+    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLong_AsLong, PyLong_Check, PyObject,
+    PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
     _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use pyo3::prelude::*;
@@ -184,9 +184,9 @@ fn show_code_vec(code_vec: &Vec<i8>) {
     for (i, c) in code_vec.iter().enumerate() {
         if i % 2 == 0 {
             let code: Bytecode = num::FromPrimitive::from_i8(*c).unwrap();
-            info!(target: "rupyjit", "code_vec[{}]:{:?}", i, code);
+            info!("code_vec[{}]:{:?}", i, code);
         } else {
-            info!(target: "rupyjit", "code_vec[{}]:0x{:02x?}", i, c);
+            info!("code_vec[{}]:0x{:02x?}", i, c);
         }
     }
 }
@@ -234,29 +234,51 @@ fn get_dict_keys(d: *mut PyObject) -> Vec<String> {
 }
 
 extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject {
-    info!(target: "rupyjit", "eval()");
+    info!("eval()");
 
     unsafe {
         let f_code = frame.read().f_code.read().co_code;
         let is_bytes = PyBytes_Check(f_code);
         let n_bytes = PyBytes_Size(f_code);
-        info!(target: "rupyjit", "is_bytes:{:?} n_bytes:{:?}", is_bytes, n_bytes);
+        info!("is_bytes:{:?} n_bytes:{:?}", is_bytes, n_bytes);
 
         let code_buf = PyBytes_AsString(f_code);
         let mut code_vec = Vec::new();
         for i in 0..n_bytes {
             code_vec.push(*code_buf.offset(i as isize));
-            info!(target: "rupyjit", "code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
+            info!("code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
         }
         show_code_vec(&code_vec);
 
         let co_varnames = frame.read().f_code.read().co_varnames;
         let co_varnames = get_co_varnames(co_varnames);
-        info!("{:?}", co_varnames);
+        info!("co_varnames={:?}", co_varnames);
 
-        let f_locals = frame.read().f_globals;
-        info!("{:?}", get_type(f_locals));
-        info!("{:?}", get_dict_keys(f_locals));
+        let f_globals = frame.read().f_globals;
+        info!("f_globals={:?}", get_dict_keys(f_globals));
+        let f_locals = frame.read().f_locals;
+        info!("f_locals={:?}", f_locals);
+
+        let co_nlocals = frame.read().f_code.read().co_nlocals;
+        info!("co_nlocals={:?}", co_nlocals);
+
+        let co_argcounts = frame.read().f_code.read().co_argcount;
+        info!("co_argcounts={:?}", co_argcounts);
+
+        info!("frame.read().f_stackdepth={:?}", frame.read().f_stackdepth);
+        info!("frame.read().f_stacktop={:?}", frame.read().f_valuestack);
+
+        let f_localsplus = frame.read().f_localsplus[0] as *mut PyObject;
+        // let f_localsplus = frame.read().f_valuestack;
+
+        for i in 0..co_argcounts {
+            let l = f_localsplus.offset(i as isize);
+            info!("l={:?}", l);
+            // info!("get_type(l)={:?}", get_type(l as *mut PyObject));
+            info!("PyLong_Check(l)={:?}", PyLong_Check(l));
+            let j = PyLong_AsLong(l);
+            info!("j={:?}", j);
+        }
     }
 
     unsafe {
@@ -270,7 +292,7 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
 
 #[pyfunction]
 fn enable() -> PyResult<()> {
-    info!(target: "rupyjit", "enable()");
+    info!("enable()");
     let state = unsafe { PyInterpreterState_Get() };
     unsafe { ORIGINAL_FRAME = Some(_PyInterpreterState_GetEvalFrameFunc(state)) };
     unsafe { _PyInterpreterState_SetEvalFrameFunc(state, eval) };
