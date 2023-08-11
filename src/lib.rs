@@ -231,6 +231,9 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
         let co_varnames = frame.read().f_code.read().co_varnames;
         let co_varnames = get_co_varnames(co_varnames);
         info!("{:?}", co_varnames);
+
+        let f_locals = frame.read().f_locals;
+        info!("{:?}", get_type(f_locals));
     }
 
     unsafe {
