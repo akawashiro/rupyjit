@@ -1,6 +1,4 @@
 import rupyjit
-print(rupyjit.version())
-rupyjit.enable()
 
 def test():
     print("Hello World!")
@@ -8,5 +6,8 @@ def test():
 def add(a, b):
     return a + b
 
-test()
+print(rupyjit.version())
+rupyjit.enable()
+
+# test()
 add(1, 2)
