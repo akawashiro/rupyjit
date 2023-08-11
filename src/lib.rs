@@ -1,8 +1,8 @@
 use log::info;
 use pyo3::ffi::{
     PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyFrameObject, PyInterpreterState_Get, PyObject,
-    PyThreadState, PyTuple_GetItem, PyTuple_Size, _PyInterpreterState_GetEvalFrameFunc,
-    _PyInterpreterState_SetEvalFrameFunc,
+    PyThreadState, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
+    _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use pyo3::prelude::*;
 use std::ffi::CStr;
@@ -190,22 +190,23 @@ fn show_code_vec(code_vec: &Vec<i8>) {
     }
 }
 
-fn get_type(py_object: *mut PyObject) -> String {
-    let c_str: &CStr = unsafe { CStr::from_ptr(py_object.read().ob_type.read().tp_name) };
+fn c_bytes_to_string(b: *const i8) -> String {
+    let c_str: &CStr = unsafe { CStr::from_ptr(b) };
     return c_str.to_str().unwrap().to_owned();
 }
 
+fn get_type(py_object: *mut PyObject) -> String {
+    return unsafe{ c_bytes_to_string(py_object.read().ob_type.read().tp_name) };
+}
+
 fn get_co_varnames(co_varnames: *mut PyObject) -> Vec<String> {
-    info!("hoge");
     let n_co_varnames = unsafe { PyTuple_Size(co_varnames) };
-    info!("{:?}", n_co_varnames);
-    let ret = Vec::new();
+    let mut ret = Vec::new();
     for i in 0..n_co_varnames {
         let t = unsafe { PyTuple_GetItem(co_varnames, i) };
-        info!("{:?}", get_type(t));
-        info!("{:?}", unsafe { PyBytes_Check(t) });
-        let c_str = unsafe { CStr::from_ptr(PyBytes_AsString(t)) };
-        info!("{:?}", c_str.to_str().unwrap().to_owned());
+        let u = unsafe { PyUnicode_AsUTF8(t) };
+        let s = c_bytes_to_string(u);
+        ret.push(s);
     }
     return ret;
 }
@@ -228,8 +229,8 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
         show_code_vec(&code_vec);
 
         let co_varnames = frame.read().f_code.read().co_varnames;
-        info!(target: "rupyjit", "{:?}", get_type(co_varnames));
-        get_co_varnames(co_varnames);
+        let co_varnames = get_co_varnames(co_varnames);
+        info!("{:?}", co_varnames);
     }
 
     unsafe {
