@@ -1,7 +1,8 @@
 use log::info;
 use pyo3::ffi::{
-    PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyFrameObject, PyInterpreterState_Get, PyObject,
-    PyThreadState, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
+    PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
+    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyObject, PyThreadState, PyTuple_Check,
+    PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
     _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use pyo3::prelude::*;
@@ -196,16 +197,37 @@ fn c_bytes_to_string(b: *const i8) -> String {
 }
 
 fn get_type(py_object: *mut PyObject) -> String {
-    return unsafe{ c_bytes_to_string(py_object.read().ob_type.read().tp_name) };
+    return unsafe { c_bytes_to_string(py_object.read().ob_type.read().tp_name) };
+}
+
+fn str_to_string(s: *mut PyObject) -> String {
+    assert_eq!(unsafe { PyUnicode_Check(s) }, 1);
+    let u = unsafe { PyUnicode_AsUTF8(s) };
+    let s = c_bytes_to_string(u);
+    return s;
 }
 
 fn get_co_varnames(co_varnames: *mut PyObject) -> Vec<String> {
+    assert_eq!(unsafe { PyTuple_Check(co_varnames) }, 1);
     let n_co_varnames = unsafe { PyTuple_Size(co_varnames) };
     let mut ret = Vec::new();
     for i in 0..n_co_varnames {
         let t = unsafe { PyTuple_GetItem(co_varnames, i) };
         let u = unsafe { PyUnicode_AsUTF8(t) };
         let s = c_bytes_to_string(u);
+        ret.push(s);
+    }
+    return ret;
+}
+
+fn get_dict_keys(d: *mut PyObject) -> Vec<String> {
+    assert_eq!(unsafe { PyDict_Check(d) }, 1);
+    let ks = unsafe { PyDict_Keys(d) };
+    let n = unsafe { PyList_Size(ks) };
+    let mut ret = Vec::new();
+    for i in 0..n {
+        let k = unsafe { PyList_GetItem(ks, i) };
+        let s = str_to_string(k);
         ret.push(s);
     }
     return ret;
@@ -232,8 +254,9 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
         let co_varnames = get_co_varnames(co_varnames);
         info!("{:?}", co_varnames);
 
-        let f_locals = frame.read().f_locals;
+        let f_locals = frame.read().f_globals;
         info!("{:?}", get_type(f_locals));
+        info!("{:?}", get_dict_keys(f_locals));
     }
 
     unsafe {
