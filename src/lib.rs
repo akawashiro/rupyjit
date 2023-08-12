@@ -1,9 +1,10 @@
 use log::info;
 use pyo3::ffi::{
     PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
-    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLong_AsLong, PyLong_Check, PyObject,
-    PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
-    _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
+    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
+    PyObject, PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8,
+    PyUnicode_Check, Py_SIZE, _PyInterpreterState_GetEvalFrameFunc,
+    _PyInterpreterState_SetEvalFrameFunc,
 };
 use pyo3::prelude::*;
 use std::ffi::CStr;
@@ -268,16 +269,23 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
         info!("frame.read().f_stackdepth={:?}", frame.read().f_stackdepth);
         info!("frame.read().f_stacktop={:?}", frame.read().f_valuestack);
 
-        let f_localsplus = frame.read().f_localsplus[0] as *mut PyObject;
         // let f_localsplus = frame.read().f_valuestack;
 
         for i in 0..co_argcounts {
-            let l = f_localsplus.offset(i as isize);
+            let l = frame.read().f_localsplus[i as usize];
+            // let l = f_localsplus.offset(2 as isize);
             info!("l={:?}", l);
-            // info!("get_type(l)={:?}", get_type(l as *mut PyObject));
-            info!("PyLong_Check(l)={:?}", PyLong_Check(l));
-            let j = PyLong_AsLong(l);
-            info!("j={:?}", j);
+            // info!("l={:?}", *l);
+            info!("size of PyObject = {:?}", std::mem::size_of::<PyObject>());
+            info!(
+                "size of PyLongObject = {:?}",
+                std::mem::size_of::<PyLongObject>()
+            );
+            // info!("Py_SIZE(l) = {:?}", Py_SIZE(l));
+            info!("get_type(l)={:?}", get_type(l));
+            // info!("PyLong_Check(l)={:?}", PyLong_Check(l));
+            // let j = PyLong_AsLong(l);
+            // info!("j={:?}", j);
         }
     }
 
