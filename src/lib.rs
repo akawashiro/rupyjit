@@ -270,12 +270,15 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
 
         info!("frame.read().f_stackdepth={:?}", frame.read().f_stackdepth);
         info!("frame.read().f_stacktop={:?}", frame.read().f_valuestack);
-
-        // let f_localsplus = frame.read().f_valuestack;
+        info!(
+            "frame.read().f_localsplus[0]={:?}",
+            frame.read().f_localsplus[0]
+        );
+        let f_localsplus_head = frame.read().f_localsplus[0];
 
         for i in 0..co_argcounts {
             let l = frame.read().f_localsplus[i as usize];
-            // let l = f_localsplus.offset(2 as isize);
+            // let l = f_localsplus_head.offset(1 as isize);
             info!("l={:?}", l);
             // info!("l={:?}", *l);
             info!("size of PyObject = {:?}", std::mem::size_of::<PyObject>());
