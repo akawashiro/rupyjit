@@ -1,4 +1,5 @@
-use log::info;
+use chrono;
+use log::{info, LevelFilter};
 use pyo3::ffi::{
     PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
     PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
@@ -8,6 +9,7 @@ use pyo3::ffi::{
 };
 use pyo3::prelude::*;
 use std::ffi::CStr;
+use std::io::Write;
 
 extern crate num;
 #[macro_use]
@@ -283,9 +285,9 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
             );
             // info!("Py_SIZE(l) = {:?}", Py_SIZE(l));
             info!("get_type(l)={:?}", get_type(l));
-            // info!("PyLong_Check(l)={:?}", PyLong_Check(l));
-            // let j = PyLong_AsLong(l);
-            // info!("j={:?}", j);
+            if PyLong_Check(l) == 1 {
+                info!("PyLong_AsLong(l)={:?}", PyLong_AsLong(l));
+            }
         }
     }
 
@@ -310,7 +312,22 @@ fn enable() -> PyResult<()> {
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rupyjit(_py: Python, m: &PyModule) -> PyResult<()> {
-    env_logger::init();
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{}:{} {} [{}] - {}",
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter(None, log::LevelFilter::Info)
+        .init();
+
+    info!("hello world");
     m.add_function(wrap_pyfunction!(enable, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     Ok(())

@@ -1,8 +1,10 @@
 #!/bin/bash -eux
 
-# Run this before run this script:
-# pyenv activate
-# pip install maturin
+if [[ ! -d venv ]]; then
+    python3 -m venv venv
+fi
+source venv/bin/activate
+pip install maturin
 
 cargo fmt
 maturin develop
