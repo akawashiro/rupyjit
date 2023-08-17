@@ -236,6 +236,17 @@ fn get_dict_keys(d: *mut PyObject) -> Vec<String> {
     return ret;
 }
 
+fn get_jit_key(frame: *mut PyFrameObject) -> String {
+    let mut fn_name = unsafe { str_to_string(frame.read().f_code.read().co_name) };
+    let co_argcounts = unsafe { frame.read().f_code.read().co_argcount };
+    for i in 0..co_argcounts {
+        let l = unsafe { frame.read().f_localsplus[i as usize] };
+        let t = get_type(l);
+        fn_name.push_str(&format!("_{}", t));
+    }
+    return fn_name;
+}
+
 extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject {
     info!("eval()");
 
@@ -249,7 +260,7 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
         let mut code_vec = Vec::new();
         for i in 0..n_bytes {
             code_vec.push(*code_buf.offset(i as isize));
-            info!("code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
+            // info!("code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
         }
         show_code_vec(&code_vec);
 
@@ -292,7 +303,17 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
                 info!("PyLong_AsLong(l)={:?}", PyLong_AsLong(l));
             }
         }
+
+        info!(
+            "PyUnicode_Check(frame.read().f_code.read().co_name)={:?}",
+            PyUnicode_Check(frame.read().f_code.read().co_name)
+        );
+        info!(
+            "str_to_string(frame.read().f_code.read().co_name)={:?}",
+            str_to_string(frame.read().f_code.read().co_name)
+        );
     }
+    info!("get_jit_key(frame)={:?}", get_jit_key(frame));
 
     unsafe {
         if let Some(original) = ORIGINAL_FRAME {
