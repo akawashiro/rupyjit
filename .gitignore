@@ -14,3 +14,5 @@ Cargo.lock
 *.pdb
 
 .python-version
+venv
+venv-pyjion
