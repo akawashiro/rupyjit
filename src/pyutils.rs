@@ -20,9 +20,17 @@ extern "C" {
     fn mprotect(addr: *const c_void, len: size_t, prot: c_int) -> c_int;
 }
 
+macro_rules! jit_log {
+    ($x:expr) => {
+        io::stdout().write_all(
+            (file!().to_owned() + ":" + &line!().to_string() + " jit_log " + $x + "\n").as_bytes(),
+        );
+        io::stdout().flush();
+    };
+}
+
 fn foo() {
-    io::stdout().write_all(b"hello world");
-    io::stdout().flush();
+    jit_log!("hoge");
 }
 
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
@@ -70,6 +78,8 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
         for i in 14..CODE_AREA_SIZE {
             *(p_start.add(i)) = 0x90;
         }
+        *(p_start.add(CODE_AREA_SIZE - 2)) = 0x90;
+        *(p_start.add(CODE_AREA_SIZE - 1)) = 0xc3;
         let code: fn() -> u8 = std::mem::transmute(p_start);
         let r = code();
     }
