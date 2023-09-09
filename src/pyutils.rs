@@ -33,6 +33,15 @@ fn foo() {
     jit_log!("hoge");
 }
 
+fn add_jit(a: *mut PyLongObject, b: *mut PyLongObject) -> *mut PyLongObject {
+    unsafe {
+        let a = PyLong_AsLong(a);
+        let b = PyLong_AsLong(b);
+        let c = a + b;
+        PyLong_Check(PyLong_FromLong(c))
+    }
+}
+
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
     info!("exec_jit_code");
 
