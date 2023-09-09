@@ -8,4 +8,7 @@ pip install maturin
 
 cargo fmt
 maturin develop
-RUST_LOG=info python3 ./use_rupyjit.py
+export RUST_LOG=info
+export PYTHONPATH=$(realpath ./venv/lib/python3.10/site-packages/rupyjit/)
+# python3 ./use_rupyjit.py
+gdb --ex run --args python3 ./use_rupyjit.py

@@ -6,6 +6,7 @@ use pyo3::ffi::{
     PyUnicode_Check, _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use std::ffi::CStr;
+use std::io::{self, Write};
 
 #[path = "bytecode.rs"]
 mod bytecode;
@@ -19,6 +20,11 @@ extern "C" {
     fn mprotect(addr: *const c_void, len: size_t, prot: c_int) -> c_int;
 }
 
+fn foo() {
+    io::stdout().write_all(b"hello world");
+    io::stdout().flush();
+}
+
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
     info!("exec_jit_code");
 
@@ -28,13 +34,41 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
     unsafe {
         let layout = Layout::from_size_align(CODE_AREA_SIZE, PAGE_SIZE).unwrap();
         let p_start = alloc(layout);
+        let foo_addr = foo as *const fn() as u64;
+        let rel_addr = (foo as *const fn() as usize) - (p_start as usize);
+        info!(
+            "p_start:0x{:x?} foo:0x{:x?} rel_addr:0x{:x?}",
+            p_start, foo as *const fn(), rel_addr
+        );
+
         let mem = mprotect(
             p_start as *const c_void,
             CODE_AREA_SIZE,
             PROT_READ | PROT_WRITE | PROT_EXEC,
         );
-        for i in 0..CODE_AREA_SIZE {
-            *(p_start.add(i)) = 0xcc;
+        assert_eq!(mem, 0);
+        *(p_start.add(0)) = 0x90;
+        *(p_start.add(1)) = 0x90;
+
+        *(p_start.add(2)) = 0x48;
+        *(p_start.add(3)) = 0xb8;
+
+        for i in 0..8 {
+            *(p_start.add(4 + i)) = (foo_addr >> (i * 8)) as u8;
+        }
+        // *(p_start.add(4)) = 0x12;
+        // *(p_start.add(5)) = 0x34;
+        // *(p_start.add(6)) = 0x56;
+        // *(p_start.add(7)) = 0x78;
+        // *(p_start.add(8)) = 0x12;
+        // *(p_start.add(9)) = 0x34;
+        // *(p_start.add(10)) = 0x56;
+        // *(p_start.add(11)) = 0x78;
+
+        *(p_start.add(12)) = 0xff;
+        *(p_start.add(13)) = 0xd0;
+        for i in 14..CODE_AREA_SIZE {
+            *(p_start.add(i)) = 0x90;
         }
         let code: fn() -> u8 = std::mem::transmute(p_start);
         let r = code();
