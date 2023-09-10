@@ -109,12 +109,8 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
         offset = write_call_rax(p_start, offset);
 
         // Set return value
+        // MOV $RAX, 0xdeadbeefdeadbeef
         offset = write_mov_rax(p_start, offset, 0xdeadbeefdeadbeef);
-
-        // Fill with NOP
-        while offset < CODE_AREA_SIZE - 1 {
-            offset = write_nop(p_start, offset);
-        }
 
         // RET
         let _ = write_ret(p_start, offset);
