@@ -30,16 +30,49 @@ macro_rules! jit_log {
 }
 
 fn foo() {
-    jit_log!("hoge");
+    jit_log!("foo DAYO!");
 }
 
-fn add_jit(a: *mut PyLongObject, b: *mut PyLongObject) -> *mut PyLongObject {
+fn add_jit(a: *mut PyObject, b: *mut PyObject) {
     unsafe {
-        let a = PyLong_AsLong(a);
-        let b = PyLong_AsLong(b);
-        let c = a + b;
-        PyLong_Check(PyLong_FromLong(c))
+        // let a = PyLong_AsLong(a);
+        // let b = PyLong_AsLong(b);
+        // let c = a + b;
+        jit_log!(&format!("PyLong_Check(a):{}", PyLong_Check(a)).to_string());
+        jit_log!(&format!("PyLong_Check(b):{}", PyLong_Check(b)).to_string());
     }
+}
+
+fn write_nop(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x90 };
+    index + 1
+}
+
+fn write_mov_rax(buf: *mut u8, index: usize, value: u64) -> usize {
+    unsafe { *(buf.add(index)) = 0x48 };
+    unsafe { *(buf.add(index + 1)) = 0xb8 };
+    for i in 0..8 {
+        unsafe { *(buf.add(i + index + 2)) = (value >> (i * 8)) as u8 };
+    }
+    index + 10
+}
+
+fn write_call_rax(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0xff };
+    unsafe { *(buf.add(index + 1)) = 0xd0 };
+    index + 2
+}
+
+fn write_ret(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0xc3 };
+    index + 1
+}
+
+fn write_u64_to_bytes(buf: *mut u8, index: usize, value: u64) -> usize {
+    for i in 0..8 {
+        unsafe { *(buf.add(i + index)) = (value >> (i * 8)) as u8 };
+    }
+    index + 8
 }
 
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
@@ -64,33 +97,32 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
             PROT_READ | PROT_WRITE | PROT_EXEC,
         );
         assert_eq!(mem, 0);
-        *(p_start.add(0)) = 0x90;
-        *(p_start.add(1)) = 0x90;
+        let mut offset = 0;
 
-        *(p_start.add(2)) = 0x48;
-        *(p_start.add(3)) = 0xb8;
+        offset = write_nop(p_start, offset);
+        offset = write_nop(p_start, offset);
 
-        for i in 0..8 {
-            *(p_start.add(4 + i)) = (foo_addr >> (i * 8)) as u8;
+        // MOV $RAX, foo_addr
+        offset = write_mov_rax(p_start, offset, foo_addr);
+
+        // CALL $RAX
+        offset = write_call_rax(p_start, offset);
+
+        // Set return value
+        offset = write_mov_rax(p_start, offset, 0xdeadbeefdeadbeef);
+
+        // Fill with NOP
+        while offset < CODE_AREA_SIZE - 1 {
+            offset = write_nop(p_start, offset);
         }
-        // *(p_start.add(4)) = 0x12;
-        // *(p_start.add(5)) = 0x34;
-        // *(p_start.add(6)) = 0x56;
-        // *(p_start.add(7)) = 0x78;
-        // *(p_start.add(8)) = 0x12;
-        // *(p_start.add(9)) = 0x34;
-        // *(p_start.add(10)) = 0x56;
-        // *(p_start.add(11)) = 0x78;
 
-        *(p_start.add(12)) = 0xff;
-        *(p_start.add(13)) = 0xd0;
-        for i in 14..CODE_AREA_SIZE {
-            *(p_start.add(i)) = 0x90;
-        }
-        *(p_start.add(CODE_AREA_SIZE - 2)) = 0x90;
-        *(p_start.add(CODE_AREA_SIZE - 1)) = 0xc3;
-        let code: fn() -> u8 = std::mem::transmute(p_start);
-        let r = code();
+        // RET
+        let _ = write_ret(p_start, offset);
+        let code: fn() -> u64 = std::mem::transmute(p_start);
+
+        info!("Jump to code:0x{:x?}", code);
+        let retval = code();
+        info!("Return from code:0x{:x?} retval:0x{:x?}", code, retval);
     }
 }
 
