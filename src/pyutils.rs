@@ -68,11 +68,22 @@ fn write_ret(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
-fn write_u64_to_bytes(buf: *mut u8, index: usize, value: u64) -> usize {
-    for i in 0..8 {
-        unsafe { *(buf.add(i + index)) = (value >> (i * 8)) as u8 };
-    }
-    index + 8
+fn write_endbr64(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0xf3 };
+    unsafe { *(buf.add(index + 1)) = 0x0f };
+    unsafe { *(buf.add(index + 2)) = 0x1e };
+    unsafe { *(buf.add(index + 3)) = 0xfa };
+    index + 4
+}
+
+fn write_push_rbp(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x55 };
+    index + 1
+}
+
+fn write_pop_rbp(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x5d };
+    index + 1
 }
 
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
@@ -99,8 +110,11 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
         assert_eq!(mem, 0);
         let mut offset = 0;
 
-        offset = write_nop(p_start, offset);
-        offset = write_nop(p_start, offset);
+        // Write endbr64
+        offset = write_endbr64(p_start, offset);
+
+        // Write push rbp
+        offset = write_push_rbp(p_start, offset);
 
         // MOV $RAX, foo_addr
         offset = write_mov_rax(p_start, offset, foo_addr);
@@ -111,6 +125,9 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
         // Set return value
         // MOV $RAX, 0xdeadbeefdeadbeef
         offset = write_mov_rax(p_start, offset, 0xdeadbeefdeadbeef);
+
+        // POP RBP
+        offset = write_pop_rbp(p_start, offset);
 
         // RET
         let _ = write_ret(p_start, offset);
