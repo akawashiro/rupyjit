@@ -13,7 +13,7 @@ use pyo3::ffi::{
 use pyo3::prelude::*;
 
 mod pyutils;
-use pyutils::{dump_frame_info, exec_jit_code};
+use pyutils::{compile_and_exec_jit_code, dump_frame_info};
 
 static mut ORIGINAL_FRAME: Option<
     extern "C" fn(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject,
@@ -33,7 +33,7 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
     info!("eval()");
 
     dump_frame_info(state, frame, c);
-    exec_jit_code(state, frame, c);
+    compile_and_exec_jit_code(state, frame, c);
 
     unsafe {
         if let Some(original) = ORIGINAL_FRAME {

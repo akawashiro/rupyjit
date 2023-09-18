@@ -6,8 +6,12 @@ def test():
 def add(a, b):
     return a + b
 
+def id(x):
+    return x
+
 print(rupyjit.version())
 rupyjit.enable()
 
 # test()
-add(4242, 1234)
+# add(4242, 1234)
+id(42)

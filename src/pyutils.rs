@@ -81,9 +81,91 @@ fn write_push_rbp(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
+fn write_push_rax(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x50 };
+    index + 1
+}
+
 fn write_pop_rbp(buf: *mut u8, index: usize) -> usize {
     unsafe { *(buf.add(index)) = 0x5d };
     index + 1
+}
+
+fn write_pop_rax(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x58 };
+    index + 1
+}
+
+pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
+    info!("compile_and_exec_jit_code");
+
+    const CODE_AREA_SIZE: usize = 1024;
+    const PAGE_SIZE: usize = 4096;
+
+    let layout = Layout::from_size_align(CODE_AREA_SIZE, PAGE_SIZE).unwrap();
+    let p_start = unsafe { alloc(layout) };
+    let mem = unsafe {
+        mprotect(
+            p_start as *const c_void,
+            CODE_AREA_SIZE,
+            PROT_READ | PROT_WRITE | PROT_EXEC,
+        )
+    };
+    assert_eq!(mem, 0);
+    let mut offset = 0;
+
+    // Write endbr64
+    offset = write_endbr64(p_start, offset);
+
+    // Write push rbp
+    offset = write_push_rbp(p_start, offset);
+
+    // Compile
+    {
+        let f_code = unsafe { frame.read().f_code.read().co_code };
+        let is_bytes = unsafe { PyBytes_Check(f_code) };
+        let n_bytes = unsafe { PyBytes_Size(f_code) };
+        info!("is_bytes:{:?} n_bytes:{:?}", is_bytes, n_bytes);
+
+        let code_buf = unsafe { PyBytes_AsString(f_code) };
+        let mut code_vec = Vec::new();
+        for i in 0..n_bytes {
+            unsafe { code_vec.push(*code_buf.offset(i as isize)) };
+        }
+
+        for i in (0..n_bytes).step_by(2) {
+            let code: Bytecode =
+                unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
+            let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
+            info!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
+
+            if code == Bytecode::LoadFast {
+                let l = unsafe { frame.read().f_localsplus[arg as usize] };
+                // MOV RAX, l
+                offset = write_mov_rax(p_start, offset, l as u64);
+                // PUSH RAX
+                offset = write_push_rax(p_start, offset);
+            } else if code == Bytecode::ReturnValue {
+                // POP RAX
+                offset = write_pop_rax(p_start, offset);
+                // POP RBP
+                offset = write_pop_rbp(p_start, offset);
+                // RET
+                offset = write_ret(p_start, offset);
+            } else {
+                panic!("Not implemented");
+            }
+        }
+    }
+    let code: fn() -> *mut PyObject = unsafe { std::mem::transmute(p_start) };
+
+    info!("Jump to code:0x{:x?}", code);
+    let retval = code();
+    info!("Return from code:0x{:x?} retval:0x{:x?}", code, retval);
+    info!("PyLong_Check(retval):{:?}", unsafe { PyLong_Check(retval) });
+    info!("PyLong_AsLong(retval):{:?}", unsafe {
+        PyLong_AsLong(retval)
+    });
 }
 
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {

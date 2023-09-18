@@ -1,4 +1,4 @@
-#[derive(Debug, FromPrimitive)]
+#[derive(Debug, FromPrimitive, PartialEq, Eq)]
 pub enum Bytecode {
     Cache = 0,
     PopTop = 1,
