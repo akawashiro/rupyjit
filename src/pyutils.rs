@@ -279,8 +279,13 @@ pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i3
 pub fn show_code_vec(code_vec: &Vec<i8>) {
     for (i, c) in code_vec.iter().enumerate() {
         if i % 2 == 0 {
-            let code: Bytecode = num::FromPrimitive::from_i8(*c).unwrap();
-            info!("code_vec[{}]:{:?}", i, code);
+            let code: Option<Bytecode> = num::FromPrimitive::from_i8(*c);
+            if !code.is_none() {
+                info!("code_vec[{}]:{:?}({:?})", i, code.unwrap(), *c as u8);
+            } else {
+                info!("code_vec[{}]:{:?}", i, *c as u8);
+                panic!("Unknown code");
+            }
         } else {
             info!("code_vec[{}]:0x{:02x?}", i, c);
         }
