@@ -6,6 +6,9 @@ def test():
 def add(a, b):
     return a + b
 
+def sub(a, b):
+    return a - b
+
 def id(x):
     return x
 
@@ -17,5 +20,6 @@ rupyjit.enable()
 
 # test()
 add(4242, 2424)
+sub(4242, 2424)
 # id(42)
 # const()

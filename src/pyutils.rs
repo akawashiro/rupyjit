@@ -116,6 +116,15 @@ fn add_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
     }
 }
 
+fn sub_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
+    unsafe {
+        let a = PyLong_AsLong(a);
+        let b = PyLong_AsLong(b);
+        let c = a - b;
+        PyLong_FromLong(c)
+    }
+}
+
 pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
     info!("compile_and_exec_jit_code");
 
@@ -180,6 +189,19 @@ pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameO
 
                 // MOV $RAX, add_py_longs
                 offset = write_mov_rax(p_start, offset, add_py_longs as u64);
+                // CALL $RAX
+                offset = write_call_rax(p_start, offset);
+
+                // PUSH RAX
+                offset = write_push_rax(p_start, offset);
+            } else if code == Bytecode::BinarySubtract {
+                // POP RSI
+                offset = write_pop_rsi(p_start, offset);
+                // POP RDI
+                offset = write_pop_rdi(p_start, offset);
+
+                // MOV $RAX, sub_py_longs
+                offset = write_mov_rax(p_start, offset, sub_py_longs as u64);
                 // CALL $RAX
                 offset = write_call_rax(p_start, offset);
 

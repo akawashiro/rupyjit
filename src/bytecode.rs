@@ -14,7 +14,7 @@ pub enum Bytecode {
     ExitInitCheck = 16,
     Reserved = 17,
     BinaryAdd = 0x17,
-    MakeFunction = 24,
+    BinarySubtract = 24,
     BinarySubscr = 25,
     BinarySlice = 26,
     StoreSlice = 27,
