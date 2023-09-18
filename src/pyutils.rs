@@ -2,8 +2,9 @@ use log::info;
 use pyo3::ffi::{
     PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
     PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
-    PyObject, PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8,
-    PyUnicode_Check, _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
+    PyLong_FromLong, PyObject, PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size,
+    PyUnicode_AsUTF8, PyUnicode_Check, _PyInterpreterState_GetEvalFrameFunc,
+    _PyInterpreterState_SetEvalFrameFunc,
 };
 use std::ffi::CStr;
 use std::io::{self, Write};
@@ -96,6 +97,25 @@ fn write_pop_rax(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
+fn write_pop_rdi(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x5f };
+    index + 1
+}
+
+fn write_pop_rsi(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x5e };
+    index + 1
+}
+
+fn add_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
+    unsafe {
+        let a = PyLong_AsLong(a);
+        let b = PyLong_AsLong(b);
+        let c = a + b;
+        PyLong_FromLong(c)
+    }
+}
+
 pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
     info!("compile_and_exec_jit_code");
 
@@ -152,6 +172,19 @@ pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameO
                 offset = write_pop_rbp(p_start, offset);
                 // RET
                 offset = write_ret(p_start, offset);
+            } else if code == Bytecode::BinaryAdd {
+                // POP RDI
+                offset = write_pop_rdi(p_start, offset);
+                // POP RSI
+                offset = write_pop_rsi(p_start, offset);
+
+                // MOV $RAX, add_py_longs
+                offset = write_mov_rax(p_start, offset, add_py_longs as u64);
+                // CALL $RAX
+                offset = write_call_rax(p_start, offset);
+
+                // PUSH RAX
+                offset = write_push_rax(p_start, offset);
             } else {
                 panic!("Not implemented");
             }
