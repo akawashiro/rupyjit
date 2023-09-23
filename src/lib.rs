@@ -33,14 +33,20 @@ extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32)
     info!("eval()");
 
     dump_frame_info(state, frame, c);
-    compile_and_exec_jit_code(state, frame, c);
+    let jit_result = compile_and_exec_jit_code(state, frame, c);
 
-    unsafe {
-        if let Some(original) = ORIGINAL_FRAME {
-            original(state, frame, c)
-        } else {
-            panic!("original frame not found");
+    match jit_result {
+        Some(result) => {
+            info!("jit result: {:?}", result);
+            result
         }
+        None => unsafe {
+            if let Some(original) = ORIGINAL_FRAME {
+                original(state, frame, c)
+            } else {
+                panic!("original frame not found");
+            }
+        },
     }
 }
 

@@ -125,7 +125,11 @@ fn sub_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
     }
 }
 
-pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
+pub fn compile_and_exec_jit_code(
+    state: *mut PyThreadState,
+    frame: *mut PyFrameObject,
+    c: i32,
+) -> Option<*mut PyObject> {
     info!("compile_and_exec_jit_code");
 
     const CODE_AREA_SIZE: usize = 1024;
@@ -208,7 +212,8 @@ pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameO
                 // PUSH RAX
                 offset = write_push_rax(p_start, offset);
             } else {
-                panic!("Not implemented");
+                info!("Unknown code:{:?}", code);
+                return None;
             }
         }
     }
@@ -221,6 +226,7 @@ pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameO
     info!("PyLong_AsLong(retval):{:?}", unsafe {
         PyLong_AsLong(retval)
     });
+    return Some(retval);
 }
 
 pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
