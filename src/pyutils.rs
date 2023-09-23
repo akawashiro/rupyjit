@@ -1,10 +1,10 @@
 use log::info;
 use pyo3::ffi::{
-    PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys, PyFrameObject,
-    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
-    PyLong_FromLong, PyObject, PyThreadState, PyTuple_Check, PyTuple_GetItem, PyTuple_Size,
-    PyUnicode_AsUTF8, PyUnicode_Check, _PyInterpreterState_GetEvalFrameFunc,
-    _PyInterpreterState_SetEvalFrameFunc,
+    PyBool_FromLong, PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys,
+    PyFrameObject, PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject,
+    PyLong_AsLong, PyLong_Check, PyLong_FromLong, PyObject, PyThreadState, PyTuple_Check,
+    PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check, Py_IsTrue,
+    _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use std::ffi::CStr;
 use std::io::{self, Write};
@@ -69,6 +69,23 @@ fn write_ret(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
+fn write_cmp_rax_0(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x48 };
+    unsafe { *(buf.add(index + 1)) = 0x83 };
+    unsafe { *(buf.add(index + 2)) = 0xf8 };
+    unsafe { *(buf.add(index + 3)) = 0x00 };
+    index + 4
+}
+
+fn write_je(buf: *mut u8, index: usize, offset: i32) -> usize {
+    unsafe { *(buf.add(index)) = 0x0f };
+    unsafe { *(buf.add(index + 1)) = 0x84 };
+    for i in 0..4 {
+        unsafe { *(buf.add(i + index + 2)) = (offset >> (i * 8)) as u8 };
+    }
+    index + 6
+}
+
 fn write_endbr64(buf: *mut u8, index: usize) -> usize {
     unsafe { *(buf.add(index)) = 0xf3 };
     unsafe { *(buf.add(index + 1)) = 0x0f };
@@ -125,6 +142,16 @@ fn sub_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
     }
 }
 
+fn check_py_bool(a: *mut PyObject) -> i64 {
+    let b = unsafe { Py_IsTrue(a) };
+    jit_log!(&format!("check_py_bool:{}", b));
+    if b == 1 {
+        1
+    } else {
+        0
+    }
+}
+
 pub fn compile_and_exec_jit_code(
     state: *mut PyThreadState,
     frame: *mut PyFrameObject,
@@ -166,16 +193,25 @@ pub fn compile_and_exec_jit_code(
             unsafe { code_vec.push(*code_buf.offset(i as isize)) };
         }
 
+        dump_frame_info(state, frame, c);
+        // Show code
         for i in (0..n_bytes).step_by(2) {
             let code: Bytecode =
                 unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
             info!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
         }
+
+        // Hack to realize relative jump in Python bytecode easily. All byte code is translated to
+        // x86_64 code with bytes_per_code bytes.
+        let bytes_per_code: i32 = 32;
+
+        // Compile
         for i in (0..n_bytes).step_by(2) {
             let code: Bytecode =
                 unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
+            let start_offset = offset;
             match code {
                 Bytecode::LoadFast => {
                     let l = unsafe { frame.read().f_localsplus[arg as usize] };
@@ -220,12 +256,40 @@ pub fn compile_and_exec_jit_code(
                     // PUSH RAX
                     offset = write_push_rax(p_start, offset);
                 }
+                Bytecode::LoadConst => {
+                    let const_table = unsafe { frame.read().f_code.read().co_consts };
+                    let const_object = unsafe { PyTuple_GetItem(const_table, arg as isize) };
+
+                    // MOV RAX, const_object
+                    offset = write_mov_rax(p_start, offset, const_object as u64);
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
+                }
+                Bytecode::PopJumpIfFalse => {
+                    // POP RDI
+                    offset = write_pop_rdi(p_start, offset);
+                    // MOV $RAX, check_py_bool
+                    offset = write_mov_rax(p_start, offset, check_py_bool as u64);
+                    // CALL $RAX
+                    offset = write_call_rax(p_start, offset);
+
+                    // Now RAX is the result of check_py_bool
+                    // 1 is true, 0 is false
+                    // CMP RAX, 0
+                    offset = write_cmp_rax_0(p_start, offset);
+                    // JE
+                    offset = write_je(p_start, offset, arg as i32 / 2 * bytes_per_code);
+                }
                 _ => {
                     info!("Unknown code:{:?}", code);
                     info!("Fallback to the Python interpreter");
                     return None;
                 }
             }
+            while (offset - start_offset) < bytes_per_code.try_into().unwrap() {
+                offset = write_nop(p_start, offset);
+            }
+            assert_eq!(offset - start_offset, bytes_per_code.try_into().unwrap());
         }
     }
     let code: fn() -> *mut PyObject = unsafe { std::mem::transmute(p_start) };
@@ -234,59 +298,6 @@ pub fn compile_and_exec_jit_code(
     let retval = code();
     info!("Return from code:{:x?} retval:{:x?}", code, retval);
     return Some(retval);
-}
-
-pub fn exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) {
-    info!("exec_jit_code");
-
-    const CODE_AREA_SIZE: usize = 1024;
-    const PAGE_SIZE: usize = 4096;
-
-    unsafe {
-        let layout = Layout::from_size_align(CODE_AREA_SIZE, PAGE_SIZE).unwrap();
-        let p_start = alloc(layout);
-        let foo_addr = foo as *const fn() as u64;
-        let rel_addr = (foo as *const fn() as usize) - (p_start as usize);
-        info!(
-            "p_start:0x{:x?} foo:0x{:x?} rel_addr:0x{:x?}",
-            p_start, foo as *const fn(), rel_addr
-        );
-
-        let mem = mprotect(
-            p_start as *const c_void,
-            CODE_AREA_SIZE,
-            PROT_READ | PROT_WRITE | PROT_EXEC,
-        );
-        assert_eq!(mem, 0);
-        let mut offset = 0;
-
-        // Write endbr64
-        offset = write_endbr64(p_start, offset);
-
-        // Write push rbp
-        offset = write_push_rbp(p_start, offset);
-
-        // MOV $RAX, foo_addr
-        offset = write_mov_rax(p_start, offset, foo_addr);
-
-        // CALL $RAX
-        offset = write_call_rax(p_start, offset);
-
-        // Set return value
-        // MOV $RAX, 0xdeadbeefdeadbeef
-        offset = write_mov_rax(p_start, offset, 0xdeadbeefdeadbeef);
-
-        // POP RBP
-        offset = write_pop_rbp(p_start, offset);
-
-        // RET
-        let _ = write_ret(p_start, offset);
-        let code: fn() -> u64 = std::mem::transmute(p_start);
-
-        info!("Jump to code:0x{:x?}", code);
-        let retval = code();
-        info!("Return from code:0x{:x?} retval:0x{:x?}", code, retval);
-    }
 }
 
 pub fn show_code_vec(code_vec: &Vec<i8>) {
@@ -385,6 +396,9 @@ pub fn dump_frame_info(state: *mut PyThreadState, frame: *mut PyFrameObject, c: 
 
         let co_nlocals = frame.read().f_code.read().co_nlocals;
         info!("co_nlocals={:?}", co_nlocals);
+
+        let co_consts = frame.read().f_code.read().co_consts;
+        info!("co_consts={:?}", co_consts);
 
         let co_argcounts = frame.read().f_code.read().co_argcount;
         info!("co_argcounts={:?}", co_argcounts);
