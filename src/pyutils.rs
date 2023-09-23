@@ -214,9 +214,9 @@ pub fn compile_and_exec_jit_code(state: *mut PyThreadState, frame: *mut PyFrameO
     }
     let code: fn() -> *mut PyObject = unsafe { std::mem::transmute(p_start) };
 
-    info!("Jump to code:0x{:x?}", code);
+    info!("Jump to code:{:x?}", code);
     let retval = code();
-    info!("Return from code:0x{:x?} retval:0x{:x?}", code, retval);
+    info!("Return from code:{:x?} retval:{:x?}", code, retval);
     info!("PyLong_Check(retval):{:?}", unsafe { PyLong_Check(retval) });
     info!("PyLong_AsLong(retval):{:?}", unsafe {
         PyLong_AsLong(retval)
