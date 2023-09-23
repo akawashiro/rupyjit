@@ -171,49 +171,60 @@ pub fn compile_and_exec_jit_code(
                 unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
             info!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
+        }
+        for i in (0..n_bytes).step_by(2) {
+            let code: Bytecode =
+                unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
+            let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
+            match code {
+                Bytecode::LoadFast => {
+                    let l = unsafe { frame.read().f_localsplus[arg as usize] };
+                    // MOV RAX, l
+                    offset = write_mov_rax(p_start, offset, l as u64);
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
+                }
+                Bytecode::ReturnValue => {
+                    // POP RAX
+                    offset = write_pop_rax(p_start, offset);
+                    // POP RBP
+                    offset = write_pop_rbp(p_start, offset);
+                    // RET
+                    offset = write_ret(p_start, offset);
+                }
+                Bytecode::BinaryAdd => {
+                    // POP RDI
+                    offset = write_pop_rdi(p_start, offset);
+                    // POP RSI
+                    offset = write_pop_rsi(p_start, offset);
 
-            if code == Bytecode::LoadFast {
-                let l = unsafe { frame.read().f_localsplus[arg as usize] };
-                // MOV RAX, l
-                offset = write_mov_rax(p_start, offset, l as u64);
-                // PUSH RAX
-                offset = write_push_rax(p_start, offset);
-            } else if code == Bytecode::ReturnValue {
-                // POP RAX
-                offset = write_pop_rax(p_start, offset);
-                // POP RBP
-                offset = write_pop_rbp(p_start, offset);
-                // RET
-                offset = write_ret(p_start, offset);
-            } else if code == Bytecode::BinaryAdd {
-                // POP RDI
-                offset = write_pop_rdi(p_start, offset);
-                // POP RSI
-                offset = write_pop_rsi(p_start, offset);
+                    // MOV $RAX, add_py_longs
+                    offset = write_mov_rax(p_start, offset, add_py_longs as u64);
+                    // CALL $RAX
+                    offset = write_call_rax(p_start, offset);
 
-                // MOV $RAX, add_py_longs
-                offset = write_mov_rax(p_start, offset, add_py_longs as u64);
-                // CALL $RAX
-                offset = write_call_rax(p_start, offset);
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
+                }
+                Bytecode::BinarySubtract => {
+                    // POP RSI
+                    offset = write_pop_rsi(p_start, offset);
+                    // POP RDI
+                    offset = write_pop_rdi(p_start, offset);
 
-                // PUSH RAX
-                offset = write_push_rax(p_start, offset);
-            } else if code == Bytecode::BinarySubtract {
-                // POP RSI
-                offset = write_pop_rsi(p_start, offset);
-                // POP RDI
-                offset = write_pop_rdi(p_start, offset);
+                    // MOV $RAX, sub_py_longs
+                    offset = write_mov_rax(p_start, offset, sub_py_longs as u64);
+                    // CALL $RAX
+                    offset = write_call_rax(p_start, offset);
 
-                // MOV $RAX, sub_py_longs
-                offset = write_mov_rax(p_start, offset, sub_py_longs as u64);
-                // CALL $RAX
-                offset = write_call_rax(p_start, offset);
-
-                // PUSH RAX
-                offset = write_push_rax(p_start, offset);
-            } else {
-                info!("Unknown code:{:?}", code);
-                return None;
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
+                }
+                _ => {
+                    info!("Unknown code:{:?}", code);
+                    info!("Fallback to the Python interpreter");
+                    return None;
+                }
             }
         }
     }
@@ -222,10 +233,6 @@ pub fn compile_and_exec_jit_code(
     info!("Jump to code:{:x?}", code);
     let retval = code();
     info!("Return from code:{:x?} retval:{:x?}", code, retval);
-    info!("PyLong_Check(retval):{:?}", unsafe { PyLong_Check(retval) });
-    info!("PyLong_AsLong(retval):{:?}", unsafe {
-        PyLong_AsLong(retval)
-    });
     return Some(retval);
 }
 
