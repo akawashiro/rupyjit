@@ -142,6 +142,14 @@ fn sub_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
     }
 }
 
+fn compare_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
+    unsafe {
+        let a = PyLong_AsLong(a);
+        let b = PyLong_AsLong(b);
+        PyBool_FromLong(if b - a < 0 { 1 } else { 0 })
+    }
+}
+
 fn check_py_bool(a: *mut PyObject) -> i64 {
     let b = unsafe { Py_IsTrue(a) };
     jit_log!(&format!("check_py_bool:{}", b));
@@ -255,6 +263,29 @@ pub fn compile_and_exec_jit_code(
 
                     // PUSH RAX
                     offset = write_push_rax(p_start, offset);
+                }
+                Bytecode::CompareOp => {
+                    match arg {
+                        0 => {
+                            // POP RDI
+                            offset = write_pop_rdi(p_start, offset);
+                            // POP RSI
+                            offset = write_pop_rsi(p_start, offset);
+
+                            // MOV $RAX, sub_py_longs
+                            offset = write_mov_rax(p_start, offset, compare_py_longs as u64);
+                            // CALL $RAX
+                            offset = write_call_rax(p_start, offset);
+
+                            // PUSH RAX
+                            offset = write_push_rax(p_start, offset);
+                        }
+                        _ => {
+                            info!("Unknown code:{:?}", code);
+                            info!("Fallback to the Python interpreter");
+                            return None;
+                        }
+                    }
                 }
                 Bytecode::LoadConst => {
                     let const_table = unsafe { frame.read().f_code.read().co_consts };
