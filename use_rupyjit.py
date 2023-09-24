@@ -22,19 +22,31 @@ def use_if(x):
     else:
         return 24
 
-dis.dis(use_if)
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n-1) + fib(n-2)
+
+def compare(a, b):
+    return a < b
+
+dis.dis(compare)
 
 # print(rupyjit.version())
 rupyjit.enable()
 
+r = compare(42, 24)
+print(r)
+# r = fib(1)
+# print(r)
 # test()
 # r = add(4242, 2424)
 # print(r)
 # sub(4242, 2424)
-r = use_if(True)
-print(r)
-r = use_if(False)
-print(r)
+# r = use_if(True)
+# print(r)
+# r = use_if(False)
+# print(r)
 # id(42)
 # r = const()
 # print(r)

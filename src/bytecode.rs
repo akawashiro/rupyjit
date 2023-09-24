@@ -83,7 +83,7 @@ pub enum Bytecode {
     PopJumpIfNotNone = 128,
     PopJumpIfNone = 129,
     RaiseVarargs = 130,
-    GetAwaitable = 131,
+    CallFunction = 131,
     BuildSlice = 133,
     JumpBackwardNoInterrupt = 134,
     MakeCell = 135,

@@ -188,16 +188,16 @@ pub fn compile_and_exec_jit_code(
         info!("is_bytes:{:?} n_bytes:{:?}", is_bytes, n_bytes);
 
         let code_buf = unsafe { PyBytes_AsString(f_code) };
-        let mut code_vec = Vec::new();
+        let mut code_vec: Vec<u8> = Vec::new();
         for i in 0..n_bytes {
-            unsafe { code_vec.push(*code_buf.offset(i as isize)) };
+            unsafe { code_vec.push(*code_buf.offset(i as isize) as u8) };
         }
 
         dump_frame_info(state, frame, c);
         // Show code
         for i in (0..n_bytes).step_by(2) {
             let code: Bytecode =
-                unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
+                unsafe { num::FromPrimitive::from_u8(*code_buf.offset(i) as u8).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
             info!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
         }
@@ -300,10 +300,10 @@ pub fn compile_and_exec_jit_code(
     return Some(retval);
 }
 
-pub fn show_code_vec(code_vec: &Vec<i8>) {
+pub fn show_code_vec(code_vec: &Vec<u8>) {
     for (i, c) in code_vec.iter().enumerate() {
         if i % 2 == 0 {
-            let code: Option<Bytecode> = num::FromPrimitive::from_i8(*c);
+            let code: Option<Bytecode> = num::FromPrimitive::from_u8(*c);
             if !code.is_none() {
                 info!("code_vec[{}]:{:?}({:?})", i, code.unwrap(), *c as u8);
             } else {
@@ -378,9 +378,9 @@ pub fn dump_frame_info(state: *mut PyThreadState, frame: *mut PyFrameObject, c: 
         info!("is_bytes:{:?} n_bytes:{:?}", is_bytes, n_bytes);
 
         let code_buf = PyBytes_AsString(f_code);
-        let mut code_vec = Vec::new();
+        let mut code_vec: Vec<u8> = Vec::new();
         for i in 0..n_bytes {
-            code_vec.push(*code_buf.offset(i as isize));
+            code_vec.push(*code_buf.offset(i as isize) as u8);
             // info!("code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
         }
         show_code_vec(&code_vec);
