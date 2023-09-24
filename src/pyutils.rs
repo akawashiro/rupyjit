@@ -341,11 +341,6 @@ pub fn compile_and_exec_jit_code(
                     // MOV $RAX, call_callable
                     offset = write_mov_rax(p_start, offset, call_callable as u64);
 
-                    // Software breakpoint
-                    // INT3
-                    unsafe { *(p_start.add(offset)) = 0xcc };
-                    offset += 1;
-
                     // CALL $RAX
                     offset = write_call_rax(p_start, offset);
                     // PUSH RAX
