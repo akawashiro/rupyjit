@@ -1,9 +1,10 @@
 use log::info;
 use pyo3::ffi::{
-    PyBool_FromLong, PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_Check, PyDict_Keys,
-    PyFrameObject, PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject,
-    PyLong_AsLong, PyLong_Check, PyLong_FromLong, PyObject, PyThreadState, PyTuple_Check,
-    PyTuple_GetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check, Py_IsTrue,
+    PyBool_FromLong, PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyCFunction_Check,
+    PyCallable_Check, PyDict_Check, PyDict_GetItem, PyDict_Keys, PyFrameObject,
+    PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
+    PyLong_FromLong, PyObject, PyObject_CallOneArg, PyThreadState, PyTuple_Check, PyTuple_GetItem,
+    PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check, Py_IsTrue,
     _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use std::ffi::CStr;
@@ -160,12 +161,22 @@ fn check_py_bool(a: *mut PyObject) -> i64 {
     }
 }
 
+fn call_callable(callable: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
+    jit_log!("call_callable");
+    // jit_log!(&format!("call_callable callable:{:x?}", callable));
+    // jit_log!(&format!("call_callable arg:{:x?}", arg));
+    let r: *mut PyObject = unsafe { PyObject_CallOneArg(callable, arg) };
+    jit_log!("call_callable");
+    r
+}
+
 pub fn compile_and_exec_jit_code(
     state: *mut PyThreadState,
     frame: *mut PyFrameObject,
     c: i32,
 ) -> Option<*mut PyObject> {
     info!("compile_and_exec_jit_code");
+    dump_frame_info(state, frame, c);
 
     const CODE_AREA_SIZE: usize = 1024;
     const PAGE_SIZE: usize = 4096;
@@ -201,7 +212,6 @@ pub fn compile_and_exec_jit_code(
             unsafe { code_vec.push(*code_buf.offset(i as isize) as u8) };
         }
 
-        dump_frame_info(state, frame, c);
         // Show code
         for i in (0..n_bytes).step_by(2) {
             let code: Bytecode =
@@ -217,7 +227,7 @@ pub fn compile_and_exec_jit_code(
         // Compile
         for i in (0..n_bytes).step_by(2) {
             let code: Bytecode =
-                unsafe { num::FromPrimitive::from_i8(*code_buf.offset(i)).unwrap() };
+                unsafe { num::FromPrimitive::from_u8(*code_buf.offset(i) as u8).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
             let start_offset = offset;
             match code {
@@ -310,6 +320,36 @@ pub fn compile_and_exec_jit_code(
                     offset = write_cmp_rax_0(p_start, offset);
                     // JE
                     offset = write_je(p_start, offset, arg as i32 / 2 * bytes_per_code);
+                }
+                Bytecode::LoadGlobal => {
+                    let name = unsafe {
+                        PyTuple_GetItem(frame.read().f_code.read().co_names, arg as isize)
+                    };
+                    let globals = unsafe { frame.read().f_globals };
+                    let value = unsafe { PyDict_GetItem(globals, name) };
+                    // MOV RAX, value
+                    offset = write_mov_rax(p_start, offset, value as u64);
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
+                }
+                Bytecode::CallFunction => {
+                    assert_eq!(arg, 1, "Only support 1 argument function");
+                    // POP RDI
+                    offset = write_pop_rdi(p_start, offset);
+                    // POP RSI
+                    offset = write_pop_rsi(p_start, offset);
+                    // MOV $RAX, call_callable
+                    offset = write_mov_rax(p_start, offset, call_callable as u64);
+
+                    // Software breakpoint
+                    // INT3
+                    unsafe { *(p_start.add(offset)) = 0xcc };
+                    offset += 1;
+
+                    // CALL $RAX
+                    offset = write_call_rax(p_start, offset);
+                    // PUSH RAX
+                    offset = write_push_rax(p_start, offset);
                 }
                 _ => {
                     info!("Unknown code:{:?}", code);

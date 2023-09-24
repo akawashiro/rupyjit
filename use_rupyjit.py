@@ -30,19 +30,20 @@ def fib(n):
 def compare(a, b):
     return a < b
 
-dis.dis(compare)
+# dis.dis(compare)
+dis.dis(fib)
 
 # print(rupyjit.version())
 rupyjit.enable()
 
-r = compare(42, 24)
-print(r)
-r = compare(24, 24)
-print(r)
-r = compare(24, 42)
-print(r)
-# r = fib(1)
+# r = compare(42, 24)
 # print(r)
+# r = compare(24, 24)
+# print(r)
+# r = compare(24, 42)
+# print(r)
+r = fib(2)
+print(r)
 # test()
 # r = add(4242, 2424)
 # print(r)
