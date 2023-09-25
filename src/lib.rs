@@ -1,5 +1,6 @@
 use chrono;
 use log::info;
+use std::env;
 use std::io::Write;
 
 extern crate num;
@@ -61,7 +62,7 @@ fn enable() -> PyResult<()> {
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rupyjit(_py: Python, m: &PyModule) -> PyResult<()> {
-    env_logger::Builder::new()
+    env_logger::Builder::from_default_env()
         .format(|buf, record| {
             writeln!(
                 buf,
@@ -73,7 +74,6 @@ fn rupyjit(_py: Python, m: &PyModule) -> PyResult<()> {
                 record.args()
             )
         })
-        .filter(None, log::LevelFilter::Info)
         .init();
     m.add_function(wrap_pyfunction!(enable, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;

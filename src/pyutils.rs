@@ -31,20 +31,6 @@ macro_rules! jit_log {
     };
 }
 
-fn foo() {
-    jit_log!("foo DAYO!");
-}
-
-fn add_jit(a: *mut PyObject, b: *mut PyObject) {
-    unsafe {
-        // let a = PyLong_AsLong(a);
-        // let b = PyLong_AsLong(b);
-        // let c = a + b;
-        jit_log!(&format!("PyLong_Check(a):{}", PyLong_Check(a)).to_string());
-        jit_log!(&format!("PyLong_Check(b):{}", PyLong_Check(b)).to_string());
-    }
-}
-
 fn write_nop(buf: *mut u8, index: usize) -> usize {
     unsafe { *(buf.add(index)) = 0x90 };
     index + 1
