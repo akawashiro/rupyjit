@@ -17,5 +17,5 @@ for TEST_PYTHON_FILE in $TEST_PYTHON_FILES; do
 done
 
 export RUST_LOG=info
-python3 ./test.py
-# gdb --ex run --args python3 ./test.py
+# python3 ./test.py
+gdb --ex run --args python3 ./test.py

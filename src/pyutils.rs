@@ -1,11 +1,11 @@
 use log::info;
 use pyo3::ffi::{
     PyBool_FromLong, PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyCFunction_Check,
-    PyCallable_Check, PyDict_Check, PyDict_GetItem, PyDict_Keys, PyFrameObject,
+    PyCallable_Check, PyDict_Check, PyDict_GetItem, PyDict_Keys, PyDict_New, PyFrameObject,
     PyInterpreterState_Get, PyList_GetItem, PyList_Size, PyLongObject, PyLong_AsLong, PyLong_Check,
-    PyLong_FromLong, PyObject, PyObject_CallOneArg, PyThreadState, PyTuple_Check, PyTuple_GetItem,
-    PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check, Py_IsTrue,
-    _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
+    PyLong_FromLong, PyObject, PyObject_Call, PyObject_CallOneArg, PyThreadState, PyTuple_Check,
+    PyTuple_GetItem, PyTuple_New, PyTuple_SetItem, PyTuple_Size, PyUnicode_AsUTF8, PyUnicode_Check,
+    Py_IsTrue, _PyInterpreterState_GetEvalFrameFunc, _PyInterpreterState_SetEvalFrameFunc,
 };
 use std::ffi::CStr;
 use std::io::{self, Write};
@@ -153,7 +153,11 @@ fn call_callable(callable: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
     jit_log!("call_callable");
     // jit_log!(&format!("call_callable callable:{:x?}", callable));
     // jit_log!(&format!("call_callable arg:{:x?}", arg));
-    let r: *mut PyObject = unsafe { PyObject_CallOneArg(callable, arg) };
+    // let r: *mut PyObject = unsafe { PyObject_CallOneArg(callable, arg) };
+    let args = unsafe { PyTuple_New(1) };
+    unsafe { PyTuple_SetItem(args, 0, arg) };
+    let kwargs = unsafe { PyDict_New() };
+    let r: *mut PyObject = unsafe { PyObject_Call(callable, args, kwargs) };
     jit_log!("call_callable");
     r
 }
@@ -210,7 +214,7 @@ pub fn compile_and_exec_jit_code(
 
         // Hack to realize relative jump in Python bytecode easily. All byte code is translated to
         // x86_64 code with bytes_per_code bytes.
-        let bytes_per_code: i32 = 32;
+        let bytes_per_code: i32 = 24;
 
         // Compile
         for i in (0..n_bytes).step_by(2) {
