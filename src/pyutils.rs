@@ -38,6 +38,11 @@ fn write_nop(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
+fn write_software_breakpoint(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0xcc };
+    index + 1
+}
+
 fn write_mov_rax(buf: *mut u8, index: usize, value: u64) -> usize {
     unsafe { *(buf.add(index)) = 0x48 };
     unsafe { *(buf.add(index + 1)) = 0xb8 };
@@ -88,9 +93,31 @@ fn write_push_rbp(buf: *mut u8, index: usize) -> usize {
     index + 1
 }
 
+fn write_mov_rsp_to_rbp(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x48 };
+    unsafe { *(buf.add(index + 1)) = 0x89 };
+    unsafe { *(buf.add(index + 2)) = 0xe5 };
+    index + 3
+}
+
 fn write_push_rax(buf: *mut u8, index: usize) -> usize {
     unsafe { *(buf.add(index)) = 0x50 };
     index + 1
+}
+
+fn write_push_dummy_value(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x68 };
+    unsafe { *(buf.add(index + 1)) = 0xaa };
+    unsafe { *(buf.add(index + 2)) = 0xbb };
+    unsafe { *(buf.add(index + 3)) = 0xcc };
+    unsafe { *(buf.add(index + 4)) = 0xdd };
+    index + 5
+}
+
+fn write_push_r11(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x41 };
+    unsafe { *(buf.add(index + 1)) = 0x53 };
+    index + 2
 }
 
 fn write_pop_rbp(buf: *mut u8, index: usize) -> usize {
@@ -101,6 +128,12 @@ fn write_pop_rbp(buf: *mut u8, index: usize) -> usize {
 fn write_pop_rax(buf: *mut u8, index: usize) -> usize {
     unsafe { *(buf.add(index)) = 0x58 };
     index + 1
+}
+
+fn write_pop_r11(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0x41 };
+    unsafe { *(buf.add(index + 1)) = 0x5b };
+    index + 2
 }
 
 fn write_pop_rdi(buf: *mut u8, index: usize) -> usize {
