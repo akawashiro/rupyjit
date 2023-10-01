@@ -10,6 +10,7 @@ cargo fmt
 maturin develop
 export PYTHONPATH=$(realpath ./venv/lib/python3.10/site-packages/rupyjit/)
 
+export RUST_LOG=info
 TEST_PYTHON_FILES=$(find . -name "test_*.py")
 for TEST_PYTHON_FILE in $TEST_PYTHON_FILES; do
     python3 $TEST_PYTHON_FILE

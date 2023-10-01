@@ -14,7 +14,7 @@ mod pyutils;
 use pyutils::dump_frame_info;
 
 extern crate libc;
-use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
+use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, IntelFormatter};
 use libc::{c_int, c_void, size_t, PROT_EXEC, PROT_READ, PROT_WRITE};
 use std::alloc::{alloc, Layout};
 
@@ -187,9 +187,6 @@ fn check_py_bool(a: *mut PyObject) -> i64 {
 
 fn call_callable(callable: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
     jit_log!("call_callable");
-    // jit_log!(&format!("call_callable callable:{:x?}", callable));
-    // jit_log!(&format!("call_callable arg:{:x?}", arg));
-    // let r: *mut PyObject = unsafe { PyObject_CallOneArg(callable, arg) };
     let args = unsafe { PyTuple_New(1) };
     unsafe { PyTuple_SetItem(args, 0, arg) };
     let kwargs = unsafe { PyDict_New() };
@@ -250,7 +247,7 @@ pub fn compile_and_exec_jit_code(
 
         // Hack to realize relative jump in Python bytecode easily. All byte code is translated to
         // x86_64 code with bytes_per_code bytes.
-        let bytes_per_code: i32 = 24;
+        let bytes_per_code: u32 = 24;
 
         // Compile
         for i in (0..n_bytes).step_by(2) {
@@ -347,7 +344,7 @@ pub fn compile_and_exec_jit_code(
                     // CMP RAX, 0
                     offset = write_cmp_rax_0(p_start, offset);
                     // JE
-                    offset = write_je(p_start, offset, arg as i32 / 2 * bytes_per_code);
+                    offset = write_je(p_start, offset, ((arg / 2) as u32 * bytes_per_code) as i32);
                 }
                 Bytecode::LoadGlobal => {
                     let name = unsafe {
@@ -388,7 +385,7 @@ pub fn compile_and_exec_jit_code(
         if std::env::var("RUST_LOG") == Result::Ok(String::from("info"))
             || std::env::var("RUST_LOG") == Result::Ok(String::from("debug"))
         {
-            log_disasm(p_start, offset);
+            log_disasm(p_start, offset, code_vec, bytes_per_code);
         }
     }
     let code: fn() -> *mut PyObject = unsafe { std::mem::transmute(p_start) };
@@ -399,7 +396,16 @@ pub fn compile_and_exec_jit_code(
     return Some(retval);
 }
 
-fn log_disasm(code: *const u8, code_size: usize) {
+fn log_disasm(code: *const u8, code_size: usize, py_code_vec: Vec<u8>, bytes_per_code: u32) {
+    assert_eq!(py_code_vec.len() % 2, 0);
+    assert!(
+        code_size >= py_code_vec.len() / 2 * bytes_per_code as usize,
+        "code_size:{:?} py_code_vec.len():{:?} bytes_per_code:{:?}",
+        code_size,
+        py_code_vec.len(),
+        bytes_per_code
+    );
+
     let mut code_vec: Vec<u8> = Vec::new();
     for i in 0..code_size {
         code_vec.push(unsafe { *code.offset(i as isize) });
@@ -413,7 +419,7 @@ fn log_disasm(code: *const u8, code_size: usize) {
     // Formatters: Masm*, Nasm*, Gas* (AT&T) and Intel* (XED).
     // For fastest code, see `SpecializedFormatter` which is ~3.3x faster. Use it if formatting
     // speed is more important than being able to re-assemble formatted instructions.
-    let mut formatter = NasmFormatter::new();
+    let mut formatter = IntelFormatter::new();
 
     // Change some options, there are many more
     formatter.options_mut().set_digit_separator("`");
@@ -431,6 +437,15 @@ fn log_disasm(code: *const u8, code_size: usize) {
     //      let instructions: Vec<_> = decoder.into_iter().collect();
     // but can_decode()/decode_out() is a little faster:
     while decoder.can_decode() {
+        // 5 is a magic number of endbr64 + push rbp.
+        if decoder.position() % bytes_per_code as usize == 5 {
+            let code: Bytecode = num::FromPrimitive::from_u8(
+                py_code_vec[(decoder.position() - 5) / bytes_per_code as usize * 2],
+            )
+            .unwrap();
+            let arg = py_code_vec[(decoder.position() - 5) / bytes_per_code as usize * 2 + 1];
+            println!("; {:?}, 0x{:02x?}", code, arg);
+        }
         // There's also a decode() method that returns an instruction but that also
         // means it copies an instruction (40 bytes):
         //     instruction = decoder.decode();
