@@ -18,4 +18,4 @@ done
 
 export RUST_LOG=info
 # python3 ./test.py
-gdb --ex run --args python3 ./test.py
+# gdb --ex run --args python3 ./test.py

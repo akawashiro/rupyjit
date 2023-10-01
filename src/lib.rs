@@ -13,8 +13,8 @@ use pyo3::ffi::{
 };
 use pyo3::prelude::*;
 
-mod pyutils;
-use pyutils::compile_and_exec_jit_code;
+mod jit;
+use jit::compile_and_exec_jit_code;
 
 static mut ORIGINAL_FRAME: Option<
     extern "C" fn(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject,
