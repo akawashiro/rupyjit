@@ -14,11 +14,7 @@ use pyo3::ffi::{
 use pyo3::prelude::*;
 
 mod jit;
-use jit::compile_and_exec_jit_code;
-
-static mut ORIGINAL_FRAME: Option<
-    extern "C" fn(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject,
-> = None;
+use jit::{eval, ORIGINAL_FRAME};
 
 #[pyfunction]
 fn version() -> PyResult<String> {
@@ -28,26 +24,6 @@ fn version() -> PyResult<String> {
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH")
     ))
-}
-
-extern "C" fn eval(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject {
-    info!("eval()");
-
-    let jit_result = compile_and_exec_jit_code(state, frame, c);
-
-    match jit_result {
-        Some(result) => {
-            info!("jit result: {:?}", result);
-            result
-        }
-        None => unsafe {
-            if let Some(original) = ORIGINAL_FRAME {
-                original(state, frame, c)
-            } else {
-                panic!("original frame not found");
-            }
-        },
-    }
 }
 
 #[pyfunction]

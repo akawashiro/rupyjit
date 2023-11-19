@@ -30,7 +30,7 @@ fn show_code_vec(code_vec: &Vec<u8>) {
     }
 }
 
-fn get_type(py_object: *mut PyObject) -> String {
+pub fn get_type(py_object: *mut PyObject) -> String {
     return unsafe { c_bytes_to_string(py_object.read().ob_type.read().tp_name) };
 }
 
@@ -90,9 +90,8 @@ pub fn dump_frame_info(_state: *mut PyThreadState, frame: *mut PyFrameObject, _c
         let mut code_vec: Vec<u8> = Vec::new();
         for i in 0..n_bytes {
             code_vec.push(*code_buf.offset(i as isize) as u8);
-            // info!("code_buf[{}]:0x{:02x?}", i, *code_buf.offset(i as isize));
         }
-        show_code_vec(&code_vec);
+        // show_code_vec(&code_vec);
 
         let co_varnames = frame.read().f_code.read().co_varnames;
         let co_varnames = get_co_varnames(co_varnames);
@@ -122,17 +121,21 @@ pub fn dump_frame_info(_state: *mut PyThreadState, frame: *mut PyFrameObject, _c
         for i in 0..co_argcounts {
             let l = frame.read().f_localsplus[i as usize];
             // let l = f_localsplus_head.offset(1 as isize);
-            info!("l={:?}", l);
+            // info!("l={:?}", l);
             // info!("l={:?}", *l);
-            info!("size of PyObject = {:?}", std::mem::size_of::<PyObject>());
-            info!(
-                "size of PyLongObject = {:?}",
-                std::mem::size_of::<PyLongObject>()
-            );
+            // info!("size of PyObject = {:?}", std::mem::size_of::<PyObject>());
+            // info!(
+            //     "size of PyLongObject = {:?}",
+            //     std::mem::size_of::<PyLongObject>()
+            // );
             // info!("Py_SIZE(l) = {:?}", Py_SIZE(l));
-            info!("get_type(l)={:?}", get_type(l));
+            info!("get_type(f_localsplus[{:?}])={:?}", i, get_type(l));
             if PyLong_Check(l) == 1 {
-                info!("PyLong_AsLong(l)={:?}", PyLong_AsLong(l));
+                info!(
+                    "PyLong_AsLong(f_localsplus[{:?}])={:?}",
+                    i,
+                    PyLong_AsLong(l)
+                );
             }
         }
 

@@ -1,8 +1,9 @@
-use log::info;
+use log::{debug, info};
 use pyo3::ffi::{
     PyBool_FromLong, PyBytes_AsString, PyBytes_Check, PyBytes_Size, PyDict_GetItem, PyDict_New,
-    PyFrameObject, PyLong_AsLong, PyLong_FromLong, PyObject, PyObject_Call, PyThreadState,
-    PyTuple_GetItem, PyTuple_New, PyTuple_SetItem, Py_IsTrue,
+    PyFrameObject, PyFrame_Check, PyInterpreterState_Get, PyLong_AsLong, PyLong_FromLong, PyObject,
+    PyObject_Call, PyThreadState, PyThreadState_Get, PyTuple_GetItem, PyTuple_New, PyTuple_SetItem,
+    Py_IsTrue,
 };
 use std::io::{self, Write};
 
@@ -11,7 +12,7 @@ mod bytecode;
 use bytecode::Bytecode;
 #[path = "pyutils.rs"]
 mod pyutils;
-use pyutils::dump_frame_info;
+use pyutils::{dump_frame_info, get_type};
 
 extern crate libc;
 use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, IntelFormatter};
@@ -52,9 +53,44 @@ fn write_mov_rax(buf: *mut u8, index: usize, value: u64) -> usize {
 }
 
 fn write_call_rax(buf: *mut u8, index: usize) -> usize {
-    unsafe { *(buf.add(index)) = 0xff };
-    unsafe { *(buf.add(index + 1)) = 0xd0 };
-    index + 2
+    // let i = write_push_r11(buf, index);
+    // unsafe { *(buf.add(i + 0)) = 0xcc };
+    // unsafe { *(buf.add(i + 1)) = 0xff };
+    // unsafe { *(buf.add(i + 2)) = 0xd0 };
+    // write_pop_r11(buf, i + 3)
+
+    // https://stackoverflow.com/questions/9592345/x86-64-align-stack-and-recover-without-saving-registers
+    // push   rsp
+    // 54
+    unsafe { *(buf.add(index + 0)) = 0x54 };
+    // push   QWORD PTR [rsp]
+    // ff 34 24
+    unsafe { *(buf.add(index + 1)) = 0xff };
+    unsafe { *(buf.add(index + 2)) = 0x34 };
+    unsafe { *(buf.add(index + 3)) = 0x24 };
+    // and    rsp,0xfffffffffffffff0
+    // 48 83 e4 f0
+    unsafe { *(buf.add(index + 4)) = 0x48 };
+    unsafe { *(buf.add(index + 5)) = 0x83 };
+    unsafe { *(buf.add(index + 6)) = 0xe4 };
+    unsafe { *(buf.add(index + 7)) = 0xf0 };
+    // call   rax
+    // ff d0
+    unsafe { *(buf.add(index + 8)) = 0xff };
+    unsafe { *(buf.add(index + 9)) = 0xd0 };
+    // mov    rsp,QWORD PTR [rsp+0x8]
+    // 48 8b 64 24 08
+    unsafe { *(buf.add(index + 10)) = 0x48 };
+    unsafe { *(buf.add(index + 11)) = 0x8b };
+    unsafe { *(buf.add(index + 12)) = 0x64 };
+    unsafe { *(buf.add(index + 13)) = 0x24 };
+    unsafe { *(buf.add(index + 14)) = 0x08 };
+    index + 15
+}
+
+fn write_leave(buf: *mut u8, index: usize) -> usize {
+    unsafe { *(buf.add(index)) = 0xc9 };
+    index + 1
 }
 
 fn write_ret(buf: *mut u8, index: usize) -> usize {
@@ -163,6 +199,7 @@ fn sub_py_longs(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
         let a = PyLong_AsLong(a);
         let b = PyLong_AsLong(b);
         let c = a - b;
+        jit_log!(&format!("sub_py_longs a:{:?} b:{:?} c:{:?}", a, b, c));
         PyLong_FromLong(c)
     }
 }
@@ -185,13 +222,82 @@ fn check_py_bool(a: *mut PyObject) -> i64 {
     }
 }
 
-fn call_callable(callable: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
-    jit_log!("call_callable");
+pub static mut ORIGINAL_FRAME: Option<
+    extern "C" fn(state: *mut PyThreadState, frame: *mut PyFrameObject, c: i32) -> *mut PyObject,
+> = None;
+
+pub extern "C" fn eval(
+    state: *mut PyThreadState,
+    frame: *mut PyFrameObject,
+    c: i32,
+) -> *mut PyObject {
+    info!("eval()");
+
+    let jit_result = compile_and_exec_jit_code(state, frame, c);
+
+    match jit_result {
+        Some(result) => {
+            info!("jit result: {:?}", result);
+            result
+        }
+        None => unsafe {
+            if let Some(original) = ORIGINAL_FRAME {
+                original(state, frame, c)
+            } else {
+                panic!("original frame not found");
+            }
+        },
+    }
+}
+
+fn call_callable(frame: *mut PyFrameObject, arg: *mut PyObject) -> *mut PyObject {
+    info!("call_callable");
+    info!(
+        "start call_callable get_type(frame as *mut PyObject):{:?}",
+        unsafe { get_type(frame as *mut PyObject) }
+    );
+    info!("arg = {:?}", unsafe { PyLong_AsLong(arg) });
+
+    let state = unsafe { PyThreadState_Get() };
+    // unsafe { frame.read().f_localsplus[0] = arg };
+    info!(
+        "&(frame.read().f_localsplus[0]) = {:?} frame.read().f_localsplus[0] = {:?} arg = {:?}",
+        unsafe { &(frame.read().f_localsplus[0]) },
+        unsafe { frame.read().f_localsplus[0] },
+        arg
+    );
+    unsafe {
+        frame.read().f_localsplus[0] = arg;
+    };
+    unsafe {
+        let f_localsplus_head = &mut frame.read().f_localsplus;
+        info!(
+            "f_localsplus_head[0] = {:?} arg = {:?}",
+            f_localsplus_head[0], arg
+        );
+        f_localsplus_head[0] = arg;
+        info!(
+            "f_localsplus_head[0] = {:?} arg = {:?}",
+            f_localsplus_head[0], arg
+        );
+    };
+    info!(
+        "frame.read().f_localsplus[0] = {:?} arg = {:?}",
+        unsafe { frame.read().f_localsplus[0] },
+        arg
+    );
+
+    info!("========== dump_frame_info ==========");
+    dump_frame_info(state, frame, 0);
+
+    jit_log!("start call_callable");
     let args = unsafe { PyTuple_New(1) };
     unsafe { PyTuple_SetItem(args, 0, arg) };
     let kwargs = unsafe { PyDict_New() };
-    let r: *mut PyObject = unsafe { PyObject_Call(callable, args, kwargs) };
-    jit_log!("call_callable");
+    // let r: *mut PyObject = unsafe { PyObject_Call(callable, args, kwargs) };
+    let r: *mut PyObject = unsafe { eval(state, frame, 0) };
+    info!("end call_callable type:{:?}", get_type(r));
+    jit_log!("end call_callable");
     r
 }
 
@@ -201,9 +307,9 @@ pub fn compile_and_exec_jit_code(
     c: i32,
 ) -> Option<*mut PyObject> {
     info!("compile_and_exec_jit_code");
-    dump_frame_info(state, frame, c);
+    // dump_frame_info(state, frame, c);
 
-    const CODE_AREA_SIZE: usize = 1024;
+    const CODE_AREA_SIZE: usize = 4096;
     const PAGE_SIZE: usize = 4096;
 
     let layout = Layout::from_size_align(CODE_AREA_SIZE, PAGE_SIZE).unwrap();
@@ -224,6 +330,9 @@ pub fn compile_and_exec_jit_code(
     // Write push rbp
     offset = write_push_rbp(p_start, offset);
 
+    // Write mov rsp to rbp
+    offset = write_mov_rsp_to_rbp(p_start, offset);
+
     // Compile
     {
         let f_code = unsafe { frame.read().f_code.read().co_code };
@@ -242,12 +351,15 @@ pub fn compile_and_exec_jit_code(
             let code: Bytecode =
                 unsafe { num::FromPrimitive::from_u8(*code_buf.offset(i) as u8).unwrap() };
             let arg: i8 = unsafe { *code_buf.offset(i as isize + 1) };
-            info!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
+            debug!("code_vec[{}]:{:?}, 0x{:02x?}", i, code, arg);
         }
 
         // Hack to realize relative jump in Python bytecode easily. All byte code is translated to
         // x86_64 code with bytes_per_code bytes.
-        let bytes_per_code: u32 = 24;
+        let bytes_per_code: u32 = 64;
+        assert!(
+            n_bytes % 2 == 0 && n_bytes / 2 * bytes_per_code as isize <= CODE_AREA_SIZE as isize
+        );
 
         // Compile
         for i in (0..n_bytes).step_by(2) {
@@ -267,7 +379,11 @@ pub fn compile_and_exec_jit_code(
                     // POP RAX
                     offset = write_pop_rax(p_start, offset);
                     // POP RBP
-                    offset = write_pop_rbp(p_start, offset);
+                    // offset = write_pop_rbp(p_start, offset);
+                    // leave
+                    offset = write_leave(p_start, offset);
+                    // Breakpoint
+                    // offset = write_software_breakpoint(p_start, offset);
                     // RET
                     offset = write_ret(p_start, offset);
                 }
@@ -359,15 +475,17 @@ pub fn compile_and_exec_jit_code(
                 }
                 Bytecode::CallFunction => {
                     assert_eq!(arg, 1, "Only support 1 argument function");
-                    // POP RDI
-                    offset = write_pop_rdi(p_start, offset);
                     // POP RSI
                     offset = write_pop_rsi(p_start, offset);
+                    // POP RDI
+                    offset = write_pop_rdi(p_start, offset);
                     // MOV $RAX, call_callable
                     offset = write_mov_rax(p_start, offset, call_callable as u64);
 
                     // CALL $RAX
                     offset = write_call_rax(p_start, offset);
+                    // Breakpoint
+                    offset = write_software_breakpoint(p_start, offset);
                     // PUSH RAX
                     offset = write_push_rax(p_start, offset);
                 }
@@ -382,9 +500,7 @@ pub fn compile_and_exec_jit_code(
             }
             assert_eq!(offset - start_offset, bytes_per_code.try_into().unwrap());
         }
-        if std::env::var("RUST_LOG") == Result::Ok(String::from("info"))
-            || std::env::var("RUST_LOG") == Result::Ok(String::from("debug"))
-        {
+        if std::env::var("RUST_LOG") == Result::Ok(String::from("debug")) {
             log_disasm(p_start, offset, code_vec, bytes_per_code);
         }
     }
@@ -392,7 +508,13 @@ pub fn compile_and_exec_jit_code(
 
     info!("Jump to code:{:x?}", code);
     let retval = code();
-    info!("Return from code:{:x?} retval:{:x?}", code, retval);
+    info!(
+        "Return from code:{:x?} retval:{:x?} PyLong_AsLong(retval):{:x?}",
+        code,
+        retval,
+        unsafe { PyLong_AsLong(retval) },
+    );
+    info!("type(retval):{:?}", get_type(retval));
     return Some(retval);
 }
 
@@ -437,13 +559,15 @@ fn log_disasm(code: *const u8, code_size: usize, py_code_vec: Vec<u8>, bytes_per
     //      let instructions: Vec<_> = decoder.into_iter().collect();
     // but can_decode()/decode_out() is a little faster:
     while decoder.can_decode() {
-        // 5 is a magic number of endbr64 + push rbp.
-        if decoder.position() % bytes_per_code as usize == 5 {
+        // 8 is a magic number of endbr64 + push rbp + mov rsp to rbp
+        let prolouge_size = 8;
+        if decoder.position() % bytes_per_code as usize == prolouge_size {
             let code: Bytecode = num::FromPrimitive::from_u8(
-                py_code_vec[(decoder.position() - 5) / bytes_per_code as usize * 2],
+                py_code_vec[(decoder.position() - prolouge_size) / bytes_per_code as usize * 2],
             )
             .unwrap();
-            let arg = py_code_vec[(decoder.position() - 5) / bytes_per_code as usize * 2 + 1];
+            let arg =
+                py_code_vec[(decoder.position() - prolouge_size) / bytes_per_code as usize * 2 + 1];
             println!("; {:?}, 0x{:02x?}", code, arg);
         }
         // There's also a decode() method that returns an instruction but that also
